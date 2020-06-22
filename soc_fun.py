@@ -43,7 +43,7 @@ def create_soc(host,port):
 def isalive(conn):
     try:
         # ping = "ping {} -p {}".format(conn[1][0],conn[1][1])
-        conn.send(str.encode('dir'))
+        conn.send(str.encode('\n'))
         conn.recv(1024)
         # conn.send(str.encode('hello'))
 

