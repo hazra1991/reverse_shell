@@ -9,10 +9,9 @@ def send_recv(conn,cmd):
     #     if len(output) <= 0:
     #         break
     #     full_msg = full_msg + output.decode('utf-8')
-    """
-        # using a header field to (here just the HEADERSIZE) to pass the message length to our code ,No .close() is required
-        form the remote end
-    """
+    # """
+    #      using a header field to (here just the HEADERSIZE) parse the message length into our code to have a size chec
+    # """
     new_msg = True
     while True:
         # print('waiting')
